@@ -32,6 +32,12 @@ streamlit run app.py
 
 La aplicación se abrirá automáticamente en tu navegador en `http://localhost:8501`
 
+## 🌐 Deploy
+
+El proyecto está desplegado online en Streamlit Community Cloud y puedes probarlo aquí:
+
+[Acceder a la App de la actividad](https://actividaddemineriadedatoscucei.streamlit.app/)
+
 ## 📁 Estructura del Proyecto
 
 ```
