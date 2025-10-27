@@ -1,234 +1,370 @@
-import io
 import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.cluster import KMeans
-from sklearn.model_selection import train_test_split
-from sklearn import metrics
-from sklearn.preprocessing import LabelEncoder
+import io
+from models.linear_regression_model import run_linear_regression
+from models.logistic_regression_model import run_logistic_regression
+from models.kmeans_model import run_kmeans
 
-# -------------------------- Helpers --------------------------
+# Configuración de la página
+st.set_page_config(
+    page_title="Proyecto de Minería de Datos",
+    page_icon="📊",
+    layout="wide"
+)
 
-def load_dataframe(uploaded_file):
-    """Carga un archivo CSV o XLSX y devuelve un DataFrame."""
+# Inicializar session state
+if 'df' not in st.session_state:
+    st.session_state.df = None
+if 'file_uploaded' not in st.session_state:
+    st.session_state.file_uploaded = False
+
+def reset_session():
+    """Reinicia la sesión y limpia todos los datos"""
+    st.session_state.df = None
+    st.session_state.file_uploaded = False
+    st.rerun()
+
+def load_file(uploaded_file):
+    """Carga un archivo CSV o XLSX y retorna un DataFrame"""
     try:
-        if uploaded_file.name.lower().endswith(".csv"):
+        if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.lower().endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
+        elif uploaded_file.name.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(uploaded_file)
         else:
-            st.error("Formato no soportado. Usa .csv o .xlsx")
+            st.error("❌ Formato no soportado. Por favor, sube un archivo CSV o XLSX.")
             return None
+        
+        if df.empty:
+            st.error("❌ El archivo está vacío.")
+            return None
+        
         return df
     except Exception as e:
-        st.error(f"Error al leer el archivo: {e}")
+        st.error(f"❌ Error al cargar el archivo: {str(e)}")
         return None
 
+# Título principal
+st.title("📊 Proyecto de Minería de Datos")
+st.markdown("---")
 
-def validate_dataframe(df):
-    """Valida que el dataframe tenga al menos 1 fila y 1 columna numérica."""
-    if df is None:
-        return False, "No hay dataframe cargado"
-    if df.shape[0] < 1:
-        return False, "El archivo debe contener al menos una fila de datos"
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    if len(numeric_cols) < 1:
-        return False, "El archivo debe contener al menos una columna numérica"
-    return True, "OK"
-
-
-# -------------------------- Model runners --------------------------
-
-def run_linear_regression(df, features, target):
-    X = df[features].values
-    y = df[target].values
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = LinearRegression()
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-
-    coef = model.coef_
-    intercept = model.intercept_
-    r2 = metrics.r2_score(y_test, y_pred)
-    rmse = np.sqrt(metrics.mean_squared_error(y_test, y_pred))
-
-    results = {
-        'coeficientes': coef.tolist(),
-        'intercepto': float(intercept),
-        'r2': float(r2),
-        'rmse': float(rmse)
-    }
-    return results
-
-
-def run_logistic_regression(df, features, target):
-    # Prepara X e y; si y no es binaria, se intenta codificar
-    X = df[features].values
-    y_raw = df[target]
-    le = LabelEncoder()
-    try:
-        y = le.fit_transform(y_raw)
-    except Exception:
-        # intentar convertir a 0/1 si son numéricos
-        y = y_raw.values
-
-    # Validar binariedad
-    unique_vals = np.unique(y)
-    if unique_vals.shape[0] != 2:
-        raise ValueError("La variable objetivo debe ser binaria para regresión logística")
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = LogisticRegression(max_iter=200)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-
-    cm = metrics.confusion_matrix(y_test, y_pred)
-    acc = metrics.accuracy_score(y_test, y_pred)
-    prec = metrics.precision_score(y_test, y_pred, zero_division=0)
-    rec = metrics.recall_score(y_test, y_pred, zero_division=0)
-    f1 = metrics.f1_score(y_test, y_pred, zero_division=0)
-
-    results = {
-        'matriz_confusion': cm.tolist(),
-        'accuracy': float(acc),
-        'precision': float(prec),
-        'recall': float(rec),
-        'f1_score': float(f1)
-    }
-    return results
-
-
-def run_kmeans(df, features, k):
-    X = df[features].values
-    model = KMeans(n_clusters=k, random_state=42)
-    model.fit(X)
-    labels = model.labels_
-    inertia = float(model.inertia_)
-    # contar miembros por cluster
-    unique, counts = np.unique(labels, return_counts=True)
-    sizes = dict(zip(map(int, unique.tolist()), counts.tolist()))
-
-    results = {
-        'labels': labels.tolist(),
-        'inertia': inertia,
-        'sizes': sizes
-    }
-    return results
-
-
-# -------------------------- App layout --------------------------
-
-st.set_page_config(page_title="Proyecto Miner\u00eda de Datos", layout='wide')
-st.title("Proyecto: Aplicación de Minería de Datos")
-st.markdown("Cargar un dataset (CSV/XLSX), seleccionar variables y ejecutar ML (scikit-learn).")
-
-# Sidebar: controles principales
+# Sidebar para controles principales
 with st.sidebar:
-    st.header("Controles")
-    uploaded_file = st.file_uploader("Cargar archivo CSV o XLSX", type=['csv', 'xls', 'xlsx'])
+    st.header("⚙️ Configuración")
+    
+    # Botón de reinicio
+    if st.button("🔄 Reiniciar Sesión", use_container_width=True):
+        reset_session()
+    
     st.markdown("---")
-    btn_reset = st.button("Reiniciar sesión / Limpiar")
+    
+    # Carga de archivo
+    st.subheader("📁 Cargar Datos")
+    uploaded_file = st.file_uploader(
+        "Selecciona un archivo CSV o XLSX",
+        type=['csv', 'xlsx', 'xls'],
+        help="Sube tu dataset para comenzar el análisis"
+    )
+    
+    if uploaded_file is not None and not st.session_state.file_uploaded:
+        df = load_file(uploaded_file)
+        if df is not None:
+            st.session_state.df = df
+            st.session_state.file_uploaded = True
+            st.success(f"✅ Archivo cargado: {uploaded_file.name}")
+            st.rerun()
 
-# Reinicio simple usando session state
-if btn_reset:
-    for key in list(st.session_state.keys()):
-        try:
-            del st.session_state[key]
-        except Exception:
-            pass
-    st.experimental_rerun()
-
-# Main area
-if uploaded_file is not None:
-    df = load_dataframe(uploaded_file)
-    valid, message = validate_dataframe(df)
-    if not valid:
-        st.error(message)
-    else:
-        st.success("Archivo cargado y validado ✅")
-        st.subheader("Vista previa (primeras 100 filas)")
-        st.dataframe(df.head(100))
-
-        # Columnas numéricas y todas las columnas
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        all_cols = df.columns.tolist()
-
-        st.sidebar.subheader("Selección de variables")
-        features = st.sidebar.multiselect("Variables independientes (X) - elegir al menos 1", options=numeric_cols)
-        target = None
-        algo = st.sidebar.selectbox("Seleccionar algoritmo", options=['Regresión lineal múltiple', 'Regresión logística binaria', 'K-means'])
-
-        if algo in ['Regresión lineal múltiple', 'Regresión logística binaria']:
-            # Para regresiones damos la opción de elegir cualquier columna (preferible numérica para lineal)
-            target = st.sidebar.selectbox("Variable dependiente (Y)", options=all_cols)
-
-        if algo == 'K-means':
-            k = st.sidebar.number_input("Número de clusters (k)", min_value=1, max_value=20, value=3, step=1)
-
-        run_btn = st.sidebar.button("Ejecutar algoritmo")
-
-        # Ejecutar cuando el usuario presione
-        if run_btn:
-            try:
-                if algo == 'Regresión lineal múltiple':
-                    if not features or target is None:
-                        st.error("Selecciona al menos 1 variable independiente y la variable dependiente.")
+# Contenido principal
+if st.session_state.df is not None:
+    df = st.session_state.df
+    
+    # Información del dataset
+    st.subheader("📋 Información del Dataset")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Filas", df.shape[0])
+    with col2:
+        st.metric("Columnas", df.shape[1])
+    with col3:
+        st.metric("Columnas Numéricas", len(df.select_dtypes(include=['number']).columns))
+    
+    # Vista previa de datos
+    st.subheader("👀 Vista Previa de Datos (primeras 100 filas)")
+    st.dataframe(df.head(100), use_container_width=True)
+    
+    # Información de columnas
+    with st.expander("ℹ️ Información de Columnas"):
+        col_info = pd.DataFrame({
+            'Columna': df.columns,
+            'Tipo': df.dtypes.values,
+            'Valores Nulos': df.isnull().sum().values,
+            'Valores Únicos': [df[col].nunique() for col in df.columns]
+        })
+        st.dataframe(col_info, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Selección de algoritmo
+    st.subheader("🤖 Selección de Algoritmo")
+    algorithm = st.selectbox(
+        "Elige el algoritmo a ejecutar:",
+        ["Selecciona un algoritmo...", "Regresión Lineal Múltiple", "Regresión Logística Binaria", "K-Means"]
+    )
+    
+    if algorithm != "Selecciona un algoritmo...":
+        st.markdown("---")
+        
+        # REGRESIÓN LINEAL MÚLTIPLE
+        if algorithm == "Regresión Lineal Múltiple":
+            st.subheader("📈 Regresión Lineal Múltiple")
+            
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            
+            if len(numeric_cols) < 2:
+                st.error("❌ Se necesitan al menos 2 columnas numéricas para regresión lineal.")
+            else:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Variables Independientes (X)**")
+                    x_cols = st.multiselect(
+                        "Selecciona las columnas para X:",
+                        numeric_cols,
+                        help="Puedes seleccionar múltiples columnas"
+                    )
+                
+                with col2:
+                    st.markdown("**Variable Dependiente (y)**")
+                    available_y = [col for col in numeric_cols if col not in x_cols]
+                    y_col = st.selectbox(
+                        "Selecciona la columna para y:",
+                        [""] + available_y
+                    )
+                
+                if st.button("▶️ Ejecutar Regresión Lineal", type="primary", use_container_width=True):
+                    if not x_cols or not y_col:
+                        st.error("❌ Debes seleccionar al menos una variable independiente y una dependiente.")
                     else:
-                        # Asegurarse de que target y features sean numéricos
-                        if target not in numeric_cols:
-                            st.warning("Advertencia: la variable dependiente no es numérica. Se intentará convertir.")
-                        results = run_linear_regression(df, features, target)
-                        st.subheader("Resultados - Regresión Lineal Múltiple")
-                        st.write("Coeficientes:")
-                        coef_df = pd.DataFrame({'feature': features, 'coefficient': results['coeficientes']})
-                        st.table(coef_df)
-                        st.write(f"Intercepto: {results['intercepto']}")
-                        st.write(f"R²: {results['r2']:.4f}")
-                        st.write(f"RMSE: {results['rmse']:.4f}")
-
-                elif algo == 'Regresión logística binaria':
-                    if not features or target is None:
-                        st.error("Selecciona variables e la variable dependiente.")
+                        with st.spinner("Ejecutando regresión lineal..."):
+                            try:
+                                results = run_linear_regression(df, x_cols, y_col)
+                                
+                                st.success("✅ Regresión lineal completada")
+                                
+                                # Mostrar resultados
+                                st.subheader("📊 Resultados")
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric("R² Score", f"{results['r2']:.4f}")
+                                    st.metric("RMSE", f"{results['rmse']:.4f}")
+                                
+                                with col2:
+                                    st.markdown("**Coeficientes:**")
+                                    coef_df = pd.DataFrame({
+                                        'Variable': x_cols,
+                                        'Coeficiente': results['coefficients']
+                                    })
+                                    st.dataframe(coef_df, use_container_width=True)
+                                    st.metric("Intercepto", f"{results['intercept']:.4f}")
+                                
+                                # Mostrar gráficos
+                                st.subheader("📉 Visualizaciones")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.image(results['plot_predictions'], caption="Valores Reales vs Predichos")
+                                
+                                with col2:
+                                    st.image(results['plot_residuals'], caption="Distribución de Residuos")
+                                
+                            except Exception as e:
+                                st.error(f"❌ Error al ejecutar regresión lineal: {str(e)}")
+        
+        # REGRESIÓN LOGÍSTICA BINARIA
+        elif algorithm == "Regresión Logística Binaria":
+            st.subheader("🎯 Regresión Logística Binaria")
+            
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            all_cols = df.columns.tolist()
+            
+            if len(numeric_cols) < 1:
+                st.error("❌ Se necesita al menos 1 columna numérica para las variables independientes.")
+            else:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Variables Independientes (X)**")
+                    x_cols = st.multiselect(
+                        "Selecciona las columnas para X:",
+                        numeric_cols,
+                        help="Selecciona las características para el modelo"
+                    )
+                
+                with col2:
+                    st.markdown("**Variable Dependiente (y) - Binaria**")
+                    y_col = st.selectbox(
+                        "Selecciona la columna para y:",
+                        [""] + all_cols
+                    )
+                    
+                    if y_col:
+                        unique_vals = df[y_col].nunique()
+                        st.info(f"ℹ️ La columna '{y_col}' tiene {unique_vals} valores únicos")
+                        if unique_vals != 2:
+                            st.warning("⚠️ La regresión logística binaria requiere exactamente 2 clases.")
+                
+                if st.button("▶️ Ejecutar Regresión Logística", type="primary", use_container_width=True):
+                    if not x_cols or not y_col:
+                        st.error("❌ Debes seleccionar al menos una variable independiente y una dependiente.")
                     else:
-                        # Intentar ejecutar y capturar si no es binaria
-                        try:
-                            results = run_logistic_regression(df, features, target)
-                            st.subheader("Resultados - Regresión Logística Binaria")
-                            st.write("Matriz de confusión:")
-                            st.table(results['matriz_confusion'])
-                            st.write(f"Accuracy: {results['accuracy']:.4f}")
-                            st.write(f"Precision: {results['precision']:.4f}")
-                            st.write(f"Recall: {results['recall']:.4f}")
-                            st.write(f"F1-score: {results['f1_score']:.4f}")
-                        except ValueError as ve:
-                            st.error(str(ve))
-
-                elif algo == 'K-means':
-                    if not features:
-                        st.error("Selecciona al menos 1 variable numérica para K-means.")
+                        with st.spinner("Ejecutando regresión logística..."):
+                            try:
+                                results = run_logistic_regression(df, x_cols, y_col)
+                                
+                                st.success("✅ Regresión logística completada")
+                                
+                                # Mostrar métricas
+                                st.subheader("📊 Métricas de Clasificación")
+                                
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Accuracy", f"{results['accuracy']:.4f}")
+                                with col2:
+                                    st.metric("Precision", f"{results['precision']:.4f}")
+                                with col3:
+                                    st.metric("Recall", f"{results['recall']:.4f}")
+                                with col4:
+                                    st.metric("F1-Score", f"{results['f1']:.4f}")
+                                
+                                # Matriz de confusión
+                                st.subheader("🔢 Matriz de Confusión")
+                                st.dataframe(results['confusion_matrix_df'], use_container_width=True)
+                                
+                                # Mostrar gráficos
+                                st.subheader("📉 Visualizaciones")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.image(results['plot_confusion_matrix'], caption="Matriz de Confusión")
+                                
+                                with col2:
+                                    st.image(results['plot_roc_curve'], caption="Curva ROC")
+                                
+                            except Exception as e:
+                                st.error(f"❌ Error al ejecutar regresión logística: {str(e)}")
+        
+        # K-MEANS
+        elif algorithm == "K-Means":
+            st.subheader("🎨 Clustering K-Means")
+            
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            
+            if len(numeric_cols) < 2:
+                st.error("❌ Se necesitan al menos 2 columnas numéricas para K-Means.")
+            else:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Variables para Clustering**")
+                    x_cols = st.multiselect(
+                        "Selecciona las columnas:",
+                        numeric_cols,
+                        help="Selecciona las características para el clustering"
+                    )
+                
+                with col2:
+                    st.markdown("**Número de Clusters**")
+                    n_clusters = st.slider(
+                        "Selecciona el número de clusters (k):",
+                        min_value=2,
+                        max_value=10,
+                        value=3,
+                        help="Número de grupos a formar"
+                    )
+                
+                if st.button("▶️ Ejecutar K-Means", type="primary", use_container_width=True):
+                    if not x_cols:
+                        st.error("❌ Debes seleccionar al menos una variable.")
                     else:
-                        results = run_kmeans(df, features, k)
-                        st.subheader("Resultados - K-means")
-                        st.write(f"Inercia: {results['inertia']}")
-                        st.write("Tamaños de grupos:")
-                        sizes_df = pd.DataFrame(list(results['sizes'].items()), columns=['cluster', 'size'])
-                        st.table(sizes_df)
-                        # mostrar etiquetas como una nueva columna (opcional)
-                        if st.checkbox("Agregar etiquetas al dataframe (columna: kmeans_label)"):
-                            df_with_labels = df.copy()
-                            df_with_labels['kmeans_label'] = results['labels']
-                            st.dataframe(df_with_labels.head(100))
-
-            except Exception as e:
-                st.error(f"Error ejecutando el algoritmo: {e}")
+                        with st.spinner("Ejecutando K-Means..."):
+                            try:
+                                results = run_kmeans(df, x_cols, n_clusters)
+                                
+                                st.success("✅ K-Means completado")
+                                
+                                # Mostrar métricas
+                                st.subheader("📊 Resultados del Clustering")
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric("Silhouette Score", f"{results['silhouette_score']:.4f}")
+                                    st.info("ℹ️ Valores cercanos a 1 indican clusters bien definidos")
+                                
+                                with col2:
+                                    st.metric("Número de Clusters", n_clusters)
+                                    st.metric("Muestras Totales", len(results['labels']))
+                                
+                                # Distribución de clusters
+                                st.subheader("📈 Distribución de Clusters")
+                                cluster_counts = pd.Series(results['labels']).value_counts().sort_index()
+                                cluster_df = pd.DataFrame({
+                                    'Cluster': cluster_counts.index,
+                                    'Cantidad': cluster_counts.values,
+                                    'Porcentaje': (cluster_counts.values / len(results['labels']) * 100).round(2)
+                                })
+                                st.dataframe(cluster_df, use_container_width=True)
+                                
+                                # Mostrar gráficos
+                                st.subheader("📉 Visualizaciones")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.image(results['plot_clusters'], caption="Visualización de Clusters")
+                                
+                                with col2:
+                                    st.image(results['plot_distribution'], caption="Distribución de Clusters")
+                                
+                                # Descargar resultados
+                                st.subheader("💾 Descargar Resultados")
+                                result_df = df[x_cols].copy()
+                                result_df['Cluster'] = results['labels']
+                                
+                                csv = result_df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Descargar CSV con Clusters",
+                                    data=csv,
+                                    file_name="kmeans_results.csv",
+                                    mime="text/csv",
+                                    use_container_width=True
+                                )
+                                
+                            except Exception as e:
+                                st.error(f"❌ Error al ejecutar K-Means: {str(e)}")
 
 else:
-    st.info("Carga un archivo en la barra lateral para comenzar")
+    # Pantalla de bienvenida
+    st.info("👈 Por favor, carga un archivo CSV o XLSX desde la barra lateral para comenzar.")
+    
+    st.markdown("""
+    ### 📚 Instrucciones de Uso
+    
+    1. **Carga tu dataset**: Usa el selector de archivos en la barra lateral
+    2. **Explora tus datos**: Revisa la vista previa y la información de columnas
+    3. **Selecciona un algoritmo**: Elige entre Regresión Lineal, Regresión Logística o K-Means
+    4. **Configura las variables**: Selecciona las columnas apropiadas para tu análisis
+    5. **Ejecuta el modelo**: Haz clic en el botón de ejecución y revisa los resultados
+    
+    ### 🎯 Algoritmos Disponibles
+    
+    - **Regresión Lineal Múltiple**: Predice valores continuos basándose en múltiples variables
+    - **Regresión Logística Binaria**: Clasifica datos en dos categorías
+    - **K-Means**: Agrupa datos similares en clusters
+    """)
 
-# -------------------------- Footer / notas --------------------------
+# Footer
 st.markdown("---")
-st.write("Notas:")
-st.write("- Esta versión inicial permite cargar y validar datasets, seleccionar variables y ejecutar los tres algoritmos pedidos.")
-st.write("- Próximos pasos sugeridos: añadir validaciones más robustas, manejo de valores faltantes, y mejores mensajes de error.")
-
+st.markdown(
+    "<div style='text-align: center; color: gray;'>Proyecto de Minería de Datos | Desarrollado con Streamlit 🚀</div>",
+    unsafe_allow_html=True
+)
